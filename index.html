@@ -1766,6 +1766,91 @@ td.center { text-align: center; }
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDy7s1hbhtMGu2SQOcbZQaFpargDzvE1YM",
+    authDomain: "worktel-zte.firebaseapp.com",
+    projectId: "worktel-zte",
+    storageBucket: "worktel-zte.firebasestorage.app",
+    messagingSenderId: "633768866232",
+    appId: "1:633768866232:web:fe041a302928410dc95f4d"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // ─── Save to Firestore ───────────────────────────────────────────
+  window.fbSaveSites = async function(data) {
+    try { await setDoc(doc(db,'worktel','sites'), { data: JSON.stringify(data) }); } catch(e){ console.error('fbSaveSites',e); }
+  };
+  window.fbSaveProblems = async function(data) {
+    try { await setDoc(doc(db,'worktel','problems'), { data: JSON.stringify(data) }); } catch(e){ console.error('fbSaveProblems',e); }
+  };
+
+  // ─── Real-time listeners ─────────────────────────────────────────
+  onSnapshot(doc(db,'worktel','sites'), snap => {
+    if (snap.exists()) {
+      try {
+        const newSites = JSON.parse(snap.data().data);
+        // Only update if data differs to avoid re-render loop
+        if (JSON.stringify(window._sites_ref) !== JSON.stringify(newSites)) {
+          sites = newSites;
+          window._sites_ref = JSON.parse(JSON.stringify(newSites));
+          applyFilters();
+          renderDashboard();
+          renderAlerts();
+          showToast('🔄 Sites synchronisés', 'info');
+        }
+      } catch(e){}
+    }
+  });
+
+  onSnapshot(doc(db,'worktel','problems'), snap => {
+    if (snap.exists()) {
+      try {
+        const newProbs = JSON.parse(snap.data().data);
+        if (JSON.stringify(window._probs_ref) !== JSON.stringify(newProbs)) {
+          problems = newProbs;
+          window._probs_ref = JSON.parse(JSON.stringify(newProbs));
+          renderProblems();
+          showToast('🔄 Problèmes synchronisés', 'info');
+        }
+      } catch(e){}
+    }
+  });
+
+  // ─── Initial load from Firestore ─────────────────────────────────
+  (async () => {
+    try {
+      const sitesSnap = await getDoc(doc(db,'worktel','sites'));
+      if (sitesSnap.exists()) {
+        sites = JSON.parse(sitesSnap.data().data);
+        window._sites_ref = JSON.parse(JSON.stringify(sites));
+        applyFilters(); renderDashboard(); renderAlerts();
+      } else {
+        // First time: push local default data to Firestore
+        await window.fbSaveSites(sites);
+      }
+      const probsSnap = await getDoc(doc(db,'worktel','problems'));
+      if (probsSnap.exists()) {
+        problems = JSON.parse(probsSnap.data().data);
+        window._probs_ref = JSON.parse(JSON.stringify(problems));
+        renderProblems();
+      } else {
+        await window.fbSaveProblems(problems);
+      }
+      showToast('✅ Connecté à Firebase', 'success');
+    } catch(e) {
+      showToast('⚠️ Mode hors ligne (localStorage)', 'error');
+      console.error('Firebase init error:', e);
+    }
+  })();
+</script>
+
 <script>
 // ===== DATA =====
 const DELAY_WARN = 2; // days warning
@@ -1818,9 +1903,10 @@ let sites = [
   {id:'SO3332',wilaya:'SOUK AHRAS',adresse:'Mechtat Djhifa Zarouria SOUK-AHRAS',typology:'rooftop',scoop:'New Site',solution:'New Site',gps:'36.190831,7.969106',loadingDate:'2026-05-05',deliveryDate:null,moyens:'',deliveryStatus:'',reportDelivery:'',installDate:null,team:'',ing:'',installStatus:'',installComment:'',extraWork:'',hse:'',report:'',idfe:'NA',returnNote:'NA',whReturn:'',rfa:'',atpDate:null,atpStatus:'',comment:'',progress:20}
 ];
 
-// Load from localStorage if available
+// Save/Load — Firebase primary, localStorage fallback
 function saveData() {
   try { localStorage.setItem('worktel_zte', JSON.stringify(sites)); } catch(e){}
+  if (window.fbSaveSites) window.fbSaveSites(sites);
 }
 function loadData() {
   try {
@@ -1834,6 +1920,7 @@ loadData();
 let problems = [];
 function saveProblems() {
   try { localStorage.setItem('worktel_problems', JSON.stringify(problems)); } catch(e){}
+  if (window.fbSaveProblems) window.fbSaveProblems(problems);
 }
 function loadProblems() {
   try {
